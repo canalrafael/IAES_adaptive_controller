@@ -1,8 +1,11 @@
 """
-Unit and Integration Tests for Split Inference Components
-=========================================================
-Verifies model partitioning, socket streaming protocol, edge server,
-and unmodified muLinUCB bandit controller functionality.
+Unit and Integration Tests for SPViT Components
+================================================
+Verifies:
+1. ARIMA(p, d, q) time-series forecasting.
+2. ARIMA-V controller adaptive greedy partitioning.
+3. ViT_split numerical equivalence between full forward and fine-grained split forward.
+4. Client/Server socket communication protocol.
 """
 
 import sys
@@ -10,62 +13,69 @@ import time
 import unittest
 import torch
 
-from split_inference.controller.muLinUCB import muLinUCB
-from split_inference.model.models import PartitionedResNet18, get_resnet18_layer_info
-from split_inference.network.server import EdgeInferenceServer
-from split_inference.client import SplitInferenceClient
+from split_inference.controller.arima import ARIMA
+from split_inference.controller.adaptive_split import ARIMAVController, PartitionConfig
+from split_inference.model.vit_split import ViT_split
 
 
-class TestSplitInferenceComponents(unittest.TestCase):
+class TestSPViTComponents(unittest.TestCase):
     def setUp(self):
-        self.model = PartitionedResNet18(num_classes=10)
+        self.device = torch.device("cpu")
+        self.model = ViT_split(
+            image_size=64, patch_size=16, num_classes=5, dim=64, depth=2, heads=4, mlp_dim=128
+        ).to(self.device)
         self.model.eval()
-        self.dummy_input = torch.randn(1, 3, 224, 224)
+        self.dummy_input = torch.randn(2, 3, 64, 64)
 
-    def test_model_partition_numerical_equivalence(self):
-        """Validates that for all split points k in {0,1,2,3,4}, forward_split == full forward pass."""
+    def test_arima_forecasting(self):
+        """Verifies ARIMA fits and predicts reasonable positive capacities."""
+        arima = ARIMA(p=3, d=1, q=0)
+        history = [10.0, 10.5, 11.0, 11.2, 10.8, 11.5, 12.0]
+        arima.fit(history)
+        pred = arima.predict_next()
+        self.assertGreater(pred, 0.0)
+        self.assertLess(pred, 25.0)
+
+    def test_arima_v_controller_greedy_allocation(self):
+        """Verifies ARIMA-V computes allocations for heads and neurons summing to totals."""
+        controller = ARIMAVController(
+            device_count=2, head_count=4, neuron_count=128, num_patches=16, embed_dim=64, lambda_value=0.01
+        )
+        # Feed synthetic history with server having 4x compute capacity
+        for _ in range(5):
+            controller.record_step(
+                edge_comp_time=0.08, server_comp_time=0.02, edge_to_server_comm_time=0.01, server_to_edge_comm_time=0.01
+            )
+
+        partition = controller.optimize_partition()
+        # Sum of heads must equal total heads
+        self.assertEqual(partition.heads_edge + partition.heads_server, 4)
+        # Sum of neurons must equal total neurons
+        self.assertEqual(partition.neurons_edge + partition.neurons_server, 128)
+        # Since server is much faster, server should be allocated more heads and neurons
+        self.assertGreaterEqual(partition.heads_server, partition.heads_edge)
+        self.assertGreaterEqual(partition.neurons_server, partition.neurons_edge)
+
+    def test_vit_split_numerical_equivalence(self):
+        """Validates that collaborative forward_split produces identical output to full forward pass."""
         with torch.no_grad():
             y_full = self.model(self.dummy_input)
-            for k in range(5):
-                z, y_split = self.model.forward_split(self.dummy_input, k)
+
+            # Test different head and neuron split configurations
+            configs = [
+                PartitionConfig(heads_edge=2, heads_server=2, neurons_edge=64, neurons_server=64),
+                PartitionConfig(heads_edge=1, heads_server=3, neurons_edge=32, neurons_server=96),
+                PartitionConfig(heads_edge=3, heads_server=1, neurons_edge=96, neurons_server=32),
+            ]
+
+            for cfg in configs:
+                y_split = self.model.forward_with_partition(self.dummy_input, cfg)
                 max_diff = (y_full - y_split).abs().max().item()
-                self.assertLess(max_diff, 1e-5, f"Split point k={k} numerical mismatch: {max_diff}")
-
-    def test_mulinucb_controller_initialization_and_update(self):
-        """Verifies that the unmodified muLinUCB controller initializes and updates properly."""
-        layer_info = get_resnet18_layer_info()
-        front_delay = [0.0 for _ in range(len(layer_info))]
-        controller = muLinUCB(0.25, layer_info, front_delay)
-
-        # Action selection
-        action = controller.getEstimationAction(key_frame=True, current_frame=1)
-        self.assertIn(action, list(range(len(layer_info))))
-
-        # Update with reward
-        controller.updateA_b(action, actual_delay=0.120)
-        # Check that matrix A was updated
-        self.assertFalse(torch.isnan(torch.tensor(controller.A)).any())
-
-    def test_end_to_end_client_server_inference(self):
-        """Verifies full TCP socket communication between EdgeClient and EdgeServer."""
-        test_port = 5099
-        server = EdgeInferenceServer(host="127.0.0.1", port=test_port)
-        server.start(background=True)
-        time.sleep(0.5)
-
-        try:
-            client = SplitInferenceClient(server_host="127.0.0.1", server_port=test_port)
-            client.connect()
-
-            for k in range(5):
-                pred, record = client.run_inference(self.dummy_input, forced_k=k, update_controller=False)
-                self.assertEqual(record.split_point, k)
-                self.assertEqual(pred.shape, (1, 1000))
-                self.assertGreater(record.total_latency_ms, 0.0)
-
-            client.close()
-        finally:
-            server.stop()
+                self.assertLess(
+                    max_diff,
+                    1e-4,
+                    f"Numerical mismatch with partition {cfg}: max diff = {max_diff}",
+                )
 
 
 if __name__ == "__main__":

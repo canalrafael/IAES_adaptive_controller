@@ -1,19 +1,24 @@
 """
-TCP Streaming Protocol for Split Inference Activations
-======================================================
-Implements efficient framed socket communication for transferring
-intermediate activations (z_k) and classification results between
-the edge client and edge server.
+TCP Streaming Protocol for SPViT Collaborative Inference
+=========================================================
+Implements framed socket communication for transferring intermediate
+Vision Transformer tokens/activations between the Edge Client and Server,
+with precise timestamp tagging (te, ts, tr) for ARIMA capacity estimation.
 """
 
 import io
-import struct
-from typing import Tuple
+import json
 import socket
+import struct
+import time
+from typing import Any, Dict, Optional, Tuple
 import torch
 
-MAGIC_HEADER = b"SPLT"
-MAGIC_RESP = b"RESP"
+MAGIC_HEADER = b"SPVT"
+MAGIC_RESP = b"SPVR"
+MSG_INFERENCE = 1
+MSG_PREDICTION = 2
+MSG_QUIT = 3
 
 
 def send_exact(sock: socket.socket, data: bytes) -> None:
@@ -39,59 +44,55 @@ def recv_exact(sock: socket.socket, num_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
-def send_activation(sock: socket.socket, tensor: torch.Tensor, k: int) -> int:
+def send_message(
+    sock: socket.socket,
+    tensor: Optional[torch.Tensor] = None,
+    meta: Optional[Dict[str, Any]] = None,
+    msg_type: int = MSG_INFERENCE,
+) -> int:
     """
-    Serializes and sends an activation tensor with split point k.
-    Returns the total bytes transmitted over the wire.
+    Sends framed message containing optional tensor and JSON metadata.
+    Header format: [Magic(4B)][MsgType(1B)][MetaLen(4B)][TensorLen(4B)]
     """
-    buf = io.BytesIO()
-    torch.save(tensor.cpu(), buf)
-    payload = buf.getvalue()
+    meta_dict = meta or {}
+    meta_dict["ts_send"] = time.time()
+    meta_bytes = json.dumps(meta_dict).encode("utf-8")
 
-    # Header format: [Magic(4B)][PayloadLen(4B)][SplitPoint_k(1B)]
-    header = MAGIC_HEADER + struct.pack("!IB", len(payload), k)
-    send_exact(sock, header + payload)
-    return len(header) + len(payload)
+    tensor_bytes = b""
+    if tensor is not None:
+        buf = io.BytesIO()
+        torch.save(tensor.cpu(), buf)
+        tensor_bytes = buf.getvalue()
+
+    header = MAGIC_HEADER + struct.pack("!BII", msg_type, len(meta_bytes), len(tensor_bytes))
+    payload = header + meta_bytes + tensor_bytes
+    send_exact(sock, payload)
+    return len(payload)
 
 
-def recv_activation(sock: socket.socket) -> Tuple[torch.Tensor, int, int]:
+def recv_message(
+    sock: socket.socket,
+) -> Tuple[int, Dict[str, Any], Optional[torch.Tensor], float, int]:
     """
-    Receives and deserializes an activation tensor.
-    Returns: (tensor, k, bytes_received)
+    Receives framed message.
+    Returns: (msg_type, meta_dict, tensor, tr_recv_time, total_bytes)
     """
-    header = recv_exact(sock, 9)
+    tr_recv = time.time()
+    header = recv_exact(sock, 13)
     magic = header[:4]
-    if magic != MAGIC_HEADER:
-        raise ValueError(f"Invalid protocol magic: {magic}")
-    
-    payload_len, k = struct.unpack("!IB", header[4:9])
-    payload = recv_exact(sock, payload_len)
-    
-    buf = io.BytesIO(payload)
-    tensor = torch.load(buf, weights_only=True)
-    return tensor, k, 9 + payload_len
+    if magic != MAGIC_HEADER and magic != MAGIC_RESP:
+        raise ValueError(f"Invalid SPViT protocol magic: {magic}")
 
+    msg_type, meta_len, tensor_len = struct.unpack("!BII", header[4:13])
 
-def send_prediction(sock: socket.socket, tensor: torch.Tensor) -> int:
-    """Sends server classification output back to client."""
-    buf = io.BytesIO()
-    torch.save(tensor.cpu(), buf)
-    payload = buf.getvalue()
-    header = MAGIC_RESP + struct.pack("!I", len(payload))
-    send_exact(sock, header + payload)
-    return len(header) + len(payload)
+    meta_bytes = recv_exact(sock, meta_len) if meta_len > 0 else b"{}"
+    meta_dict = json.loads(meta_bytes.decode("utf-8"))
 
+    tensor = None
+    if tensor_len > 0:
+        tensor_bytes = recv_exact(sock, tensor_len)
+        buf = io.BytesIO(tensor_bytes)
+        tensor = torch.load(buf, weights_only=True)
 
-def recv_prediction(sock: socket.socket) -> Tuple[torch.Tensor, int]:
-    """Receives server classification output."""
-    header = recv_exact(sock, 8)
-    magic = header[:4]
-    if magic != MAGIC_RESP:
-        raise ValueError(f"Invalid response magic: {magic}")
-    
-    payload_len, = struct.unpack("!I", header[4:8])
-    payload = recv_exact(sock, payload_len)
-    
-    buf = io.BytesIO(payload)
-    tensor = torch.load(buf, weights_only=True)
-    return tensor, 8 + payload_len
+    total_bytes = 13 + meta_len + tensor_len
+    return msg_type, meta_dict, tensor, tr_recv, total_bytes
