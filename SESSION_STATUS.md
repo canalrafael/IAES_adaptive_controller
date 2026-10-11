@@ -1,86 +1,82 @@
 # Project Checkpoint & Session Status
 
-**Date:** 2026-09-28  
-**Active Branch:** `adaptive-controller` (repository: `canalrafael/IAES_adaptive_controller`)  
+**Date:** 2026-10-11  
+**Active Branch:** `adaptive-controller_SPViT`  
+**Repository:** `https://github.com/canalrafael/IAES_adaptive_controller.git`  
 **Workspace:** `c:\Users\canal\Desktop\Doutorado - PPGCC\adaptive split point controller\IAES`
 
 ---
 
-## 1. Current State & Milestones Achieved
+## 1. Branch Architecture & Topic Separation
 
-- **Milestone 1:** **Stage 1 Hardware Go/No-Go Experiment [PASSED]**
-  - **Hypothesis Validated on Real Physical Hardware:**
-    Transient memory bus contention during learning manipulates `muLinUCB` to pick suboptimal split `k^a = 2` instead of `k^0 = 4`.
-    - **Decision Manipulation Rate:** **100%** (5/5 trials)
-    - **Physical Contention Impact (`Delta_phys`):** **+47.74 ms**
-    - **Persistent Control Overhead (`Delta_ctrl`):** **+114.95 ms** (~2.43x amplification)
-  - **Controller Integrity:**
-    The `muLinUCB` controller (`split_inference/controller/muLinUCB.py`) remains **100% original and unmodified** from WWW 2021.
-
-- **Milestone 2:** **Hardware Visual Analytics & Publication Figures [COMPLETED]**
-  - Formatted raw hardware results into [`results/hardware_gonogo_results.csv`](results/hardware_gonogo_results.csv).
-  - Created plot generator [`split_inference/plot_hardware_results.py`](split_inference/plot_hardware_results.py).
-  - Generated 4 publication-quality figures in both high-res PNG and vector PDF formats under [`results/figures/`](results/figures/):
-    1. `hardware_delta_comparison.png` / `.pdf`: Per-trial `Delta_phys` vs `Delta_ctrl` with 2.4x badge callouts.
-    2. `hardware_amplification_summary.png` / `.pdf`: Mean ± std aggregated comparison and amplification ratios.
-    3. `hardware_phase_trajectory.png` / `.pdf`: 3-phase lifecycle trajectory (Nominal -> Attack -> Post-Attack lock-in).
-    4. `hardware_split_decision_map.png` / `.pdf`: Split decision manipulation matrix and ResNet-18 partition placement.
-
-- **Milestone 3:** **30-Minute Presentation Script & Slide Deck [COMPLETED]**
-  - Created [`PRESENTATION_SLIDES.md`](PRESENTATION_SLIDES.md) containing 16 clean, non-fluffy slides ready for Google Slides.
-  - Formatted in plain text (no LaTeX syntax) with concise bullet points and complete "What to say" speaker notes.
-  - Covers:
-    - Background & why ANS was chosen (architectural fit & open-source availability).
-    - Proof of online learning (explanation of matrix A, vector b, ridge regression).
-    - Microarchitectural contention mechanics and the attribution error causing split shifts.
-    - Physical hardware setup, TCP binary protocol, and experimental results.
+| Branch | Paper / Topic | Target Architecture | Controller | Remote Commit |
+| :--- | :--- | :--- | :--- | :--- |
+| **`adaptive-controller_SPViT`** *(current)* | **SPViT** (IEEE TMC 2025) | Fine-grained partitionable **Vision Transformer (ViT)** | **Original SPViT Controller** (`ARIMA.py` & `AdaptiveSplit.py`) | `c1c2347` (Pushed) |
+| **`adaptive-controller`** | **Autodidactic Neurosurgeon (ANS)** (WWW 2021) | Sequential partition **ResNet-18 (CNN)** | **muLinUCB** Contextual Bandit with Ridge Regression | `914bf91` (Pushed) |
 
 ---
 
-## 2. Hardware & Network Setup
+## 2. Summary of Work Completed Today
 
-| Component | Hardware | Role & Operating System | IP Address |
-|---|---|---|---|
-| **Edge Device** | Raspberry Pi 4 | Client / Split Inference Frontend (Raspberry Pi OS 64-bit) | `192.168.1.222` |
-| **Server** | Host PC | Edge Server / Backend GPU/CPU (Windows 11) | `192.168.1.19` |
-| **Network** | Ethernet | Direct Gigabit LAN via Router | Port `5005` |
+### A. SPViT Branch Setup (`adaptive-controller_SPViT`)
+1. **Created & Synced Branch:**
+   * Created new branch `adaptive-controller_SPViT` from `adaptive-controller` and pushed upstream to `origin`.
+2. **Dedicated Pure SPViT Architecture:**
+   * Removed all ANS / muLinUCB / ResNet scripts from `split_inference/` to keep this branch 100% focused on SPViT.
+3. **Exact Original Controller Integration:**
+   * Brought in the exact original files from the official SPViT repository ([`CGCL-codes/SPViT`](https://github.com/CGCL-codes/SPViT)) without any changes:
+     * [`split_inference/controller/ARIMA.py`](split_inference/controller/ARIMA.py): Original ARIMA class with `difference()`, `fit()`, and `forecast()`.
+     * [`split_inference/controller/AdaptiveSplit.py`](split_inference/controller/AdaptiveSplit.py): Original functions `calculate_flops_MSA`, `calculate_flops_FC`, `compute_DL`, `compute_eta`, and `adaptive_vit_inference_offloading`.
+4. **Partitionable ViT Model (`split_inference/model/vit_split.py`):**
+   * Implemented pure PyTorch (zero external `einops` dependency) Vision Transformer supporting:
+     * **Head-Width Splitting:** Partitions Multi-Head Attention heads between edge ($h_e$) and server ($h_s$).
+     * **Neuron-Width Splitting:** Partitions Feed-Forward projection neurons between edge ($m_e$) and server ($m_s$) with linear recombining: $Y = Y_{edge} + Y_{server}$.
+5. **Client / Server Socket Streaming (`client.py` & `server.py`):**
+   * Framed TCP streaming socket protocol with timestamp metadata ($t_e, t_s, t_r$) to profile computing capacity and bandwidth online.
+6. **Testing & Simulation:**
+   * Unit tests ([`split_inference/tests/test_all.py`](split_inference/tests/test_all.py)) passing all tests:
+     * Exact original `ARIMA` time-series forecasting.
+     * Exact original `AdaptiveSplit` math functions.
+     * Numerical equivalence ($< 10^{-4}$) between full forward pass and collaborative split forward pass.
+   * Standalone simulation ([`split_inference/run_spvit_simulation.py`](split_inference/run_spvit_simulation.py)) running dynamic offloading across simulated LAN, low bandwidth, and server contention phases.
+7. **Documentation:**
+   * Created [`README_SPViT.md`](README_SPViT.md) detailing architecture, equations, and usage.
 
-### Environment on Raspberry Pi 4:
-- Path: `~/IAES_adaptive_controller`
-- Virtual environment: `~/IAES_adaptive_controller/venv` (Python 3.13)
-- PyTorch: `2.14.0+cu130` (ARM64 via piwheels)
+### B. Previous Milestone on `adaptive-controller` (ANS / muLinUCB)
+* Applied and pushed fixes to [`split_inference/controller/muLinUCB.py`](split_inference/controller/muLinUCB.py) (action indexing, $C_x$ bound, $A = \beta \cdot I$, scalar extraction).
+* Real physical hardware validation on Raspberry Pi 4 + PC confirmed 100% decision manipulation rate and 2.43x control-induced latency amplification (+114.95 ms overhead).
 
 ---
 
-## 3. Quick-Start Commands to Resume Tomorrow
+## 3. Quick-Start Commands for Next Session
 
-### Step 1: Start Server (on Windows PC)
-From the repository root (`IAES`):
+### Working on SPViT (`adaptive-controller_SPViT`):
 ```powershell
-python -m split_inference.run_hardware_server --port 5005
+# 1. Run unit tests:
+python -m unittest split_inference.tests.test_all
+
+# 2. Run standalone adaptive simulation:
+python -m split_inference.run_spvit_simulation --minibatches 30
+
+# 3. Run Server (e.g. on PC / GPU):
+python -m split_inference.server --port 5005
+
+# 4. Run Edge Client (e.g. on Raspberry Pi or local test):
+python -m split_inference.client --host 127.0.0.1 --port 5005 --minibatches 30
 ```
 
-### Step 2: SSH into Raspberry Pi 4
-From your terminal / Ubuntu VM:
-```bash
-ssh canal@192.168.1.222
-cd ~/IAES_adaptive_controller
-source venv/bin/activate
-git pull
-```
-
-### Step 3: Run Planned Next Step (Stage 2 Parameter Sweep)
-```bash
-# Run sweep across contention intensity (1 to 8 workers) and models:
-python3 -m split_inference.run_stage2_hardware --host 192.168.1.19 --port 5005 --trials 20
+### Switching Back to ANS / muLinUCB (`adaptive-controller`):
+```powershell
+git checkout adaptive-controller
 ```
 
 ---
 
-## 4. Key Artifacts & Documentation
+## 4. Key Documentation & Artifacts
 
-- [`PRESENTATION_SLIDES.md`](PRESENTATION_SLIDES.md): Complete 16-slide presentation text with plain-text formulas and speaking notes.
-- [`results/figures/`](results/figures/): High-resolution PNG and PDF figures from the real hardware experiment.
-- [`results/hardware_gonogo_results.csv`](results/hardware_gonogo_results.csv): Raw data from the 5 hardware trials.
-- [`results/experiment_results_summary.txt`](results/experiment_results_summary.txt): Full plain-text experiment record.
-- `SESSION_STATUS.md`: This checkpoint file for seamless pickup.
+* [`README_SPViT.md`](README_SPViT.md): Full documentation for the SPViT branch and its original controller.
+* [`split_inference/controller/ARIMA.py`](split_inference/controller/ARIMA.py): Exact original SPViT ARIMA model.
+* [`split_inference/controller/AdaptiveSplit.py`](split_inference/controller/AdaptiveSplit.py): Exact original SPViT offloading logic.
+* [`split_inference/model/vit_split.py`](split_inference/model/vit_split.py): Fine-grained partitionable Vision Transformer.
+* [`PRESENTATION_SLIDES.md`](PRESENTATION_SLIDES.md): 16-slide Google Slides presentation on ANS muLinUCB contention vulnerability.
+* [`results/hardware_gonogo_results.csv`](results/hardware_gonogo_results.csv): Real hardware experimental dataset.
