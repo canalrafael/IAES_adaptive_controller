@@ -11,8 +11,7 @@ import socket
 import time
 import torch
 
-from split_inference.model.vit_split import ViT_split
-from split_inference.controller.adaptive_split import PartitionConfig
+from split_inference.model.vit_split import ViT_split, PartitionConfig
 from split_inference.network.protocol import (
     recv_message,
     send_message,

@@ -12,7 +12,31 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
-from split_inference.controller.adaptive_split import PartitionConfig
+class PartitionConfig:
+    """Represents a fine-grained head and neuron partition configuration."""
+
+    def __init__(
+        self,
+        heads_edge: int = 3,
+        heads_server: int = 3,
+        neurons_edge: int = 768,
+        neurons_server: int = 768,
+        split_block_idx: int = 0,
+    ):
+        self.heads_edge = heads_edge
+        self.heads_server = heads_server
+        self.neurons_edge = neurons_edge
+        self.neurons_server = neurons_server
+        self.split_block_idx = split_block_idx
+
+    def to_dict(self):
+        return {
+            "heads_edge": self.heads_edge,
+            "heads_server": self.heads_server,
+            "neurons_edge": self.neurons_edge,
+            "neurons_server": self.neurons_server,
+            "split_block_idx": self.split_block_idx,
+        }
 
 
 class FeedForward(nn.Module):
