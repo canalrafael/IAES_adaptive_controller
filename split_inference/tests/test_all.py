@@ -67,6 +67,20 @@ class TestSplitInferenceComponents(unittest.TestCase):
         finally:
             server.stop()
 
+    def test_ans_original_package_and_vgg16_controller(self):
+        """Verifies the imported original ANS package and VGG-16 partition controller."""
+        from ans import muLinUCB as ans_muLinUCB, vgg_info
+        self.assertEqual(len(vgg_info), 23)
+
+        front_delay = [0.0 for _ in range(len(vgg_info))]
+        controller = ans_muLinUCB(0.25, vgg_info, front_delay)
+
+        action = controller.getEstimationAction(key_frame=True, current_frame=1)
+        self.assertIn(action, list(range(len(vgg_info))))
+
+        controller.updateA_b(action, actual_delay=0.085)
+        self.assertFalse(torch.isnan(torch.tensor(controller.A)).any())
+
 
 if __name__ == "__main__":
     unittest.main()
