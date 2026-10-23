@@ -52,26 +52,23 @@
 
 ---
 
-## Slide 4: Proving It Is Online Learning (What are Matrix A and Vector b?)
+## Slide 4: How the Online Learning Actually Works
 
-* **Slide Title:** Proof of Online Learning: What are Matrix A and Vector b?
+* **Slide Title:** True Online Learning (The Running Tally)
 * **Slide Bullets:**
-  * Starts with zero knowledge: No offline dataset, no pre-trained delay model.
-  * **What is Matrix A (7x7)?**
-    * It is the feature covariance / design matrix: `A = sum(x_p * transpose(x_p)) + beta * Identity`.
-    * Tracks how much the controller has explored each dimension of the 7D context space.
-    * Its inverse, `inverse(A)`, represents the uncertainty of our estimate (larger uncertainty = higher exploration incentive).
-  * **What is Vector b (7x1)?**
-    * It is the accumulated feedback vector: `b = sum(x_p * observed_delay)`.
-    * Accumulates the actual round-trip offloading delays observed for the tested context features.
-  * **Online Ridge Regression on every frame `t`:**
-    * Solves the linear weights in closed form: `theta = inverse(A) * b`.
-    * When a split is tested, updates incrementally in real time:
-      `A = A + x_p * transpose(x_p)`
-      `b = b + x_p * observed_delay`
-    * No retraining from scratch; state updates in order d^2 operations.
+  * Starts with zero knowledge: No offline dataset, no pre-trained models, no training loops.
+  * **The "Experience Map" (Matrix A):**
+    * A mathematical map of what the controller has tried so far.
+    * It tracks exactly how much data has been gathered for each feature (like payload size or server computations).
+    * Tells the controller where it is confident and where it needs to explore.
+  * **The "Delay Scoreboard" (Vector b):**
+    * A running total of the actual round-trip delays experienced.
+    * It attributes those delays to the features of the splits that caused them.
+  * **The "Current Belief" (Theta):**
+    * Instantly combines the Map and the Scoreboard to create a real-time rule of thumb (e.g., "right now, sending 1MB costs 5ms").
+    * When a frame finishes, the new delay is simply added to the old totals. The state updates instantaneously.
 * **What to say:**
-  > "To prove that this is true online learning, let's look at what matrix A and vector b actually are. The algorithm is running incremental ridge regression in real time. Matrix A is the feature covariance matrix. It starts as an identity matrix and accumulates the outer product of every context vector tested so far: x times transpose of x. It literally records where in the 7-dimensional feature space the system has gathered data. The inverse of A tells the controller how uncertain it is about each direction in the feature space. Vector b is the accumulated feedback vector. Every time an inference finishes and we measure the actual latency, we multiply that delay by the context vector x and add it to b. At each frame, the environmental parameter vector theta is simply computed as inverse(A) times b. There is no historical dataset stored in memory and no offline training loop. Every single frame directly updates A and b in real time."
+  > "To prove this is true online learning, we need to understand how it updates. It does not memorize a huge database of past frames or stop to retrain a neural network. Instead, it just keeps two running tallies. The first is an 'Experience Map'—Matrix A—which tracks what features the controller has tested and how confident it is. The second is a 'Delay Scoreboard'—Vector b—which sums up all the real-time delays it has observed. For every new frame, it combines the map and the scoreboard to instantly form a current belief, like 'sending a megabyte currently costs 5 milliseconds'. Because it only updates these running totals, the math is instantaneous, requiring zero offline profiling."
 
 ---
 
@@ -172,14 +169,14 @@
 
 * **Slide Title:** Why Does the Bad Decision Persist After the Attack?
 * **Slide Bullets:**
-  * Contention stops after 12 rounds (0 worker processes active).
+  * Contention stops completely after a short burst.
   * Why doesn't the controller recover?
-    1. **Variance reduction in A:** Once the controller picks `k = 2`, every subsequent frame adds more samples of `x_2 * transpose(x_2)` into matrix A.
-    2. **Exploration bonus collapses:** As A grows, `alpha * sqrt(x * inv(A) * x)` shrinks to zero. The controller becomes mathematically 'confident' that `k = 2` is optimal.
-    3. **Forced sampling is too sparse:** With `mu = 0.25`, forced sampling only tests other splits once every 4 to 8 frames (and even less as horizon doubles). A single unattacked sample cannot overturn the dozens of biased samples already accumulated in A and b.
-  * Result: The controller is permanently stuck in split `k = 2`.
+    1. **Confirmation Bias:** Once the controller shifts to the bad split, every subsequent frame adds more data reinforcing that decision.
+    2. **False Confidence:** As the controller gathers more data on the new split, its "confidence" in that choice peaks. It loses the incentive to explore and becomes stubborn.
+    3. **Rare Random Checks:** The system has a built-in mechanism to occasionally test other splits, but it triggers too rarely. A single clean sample of the original split isn't enough to outweigh the mountain of corrupted data collected during the attack.
+  * Result: The controller is permanently stuck in a suboptimal state.
 * **What to say:**
-  > "Here is the key finding: after 12 rounds, we kill the attack completely. Contention drops to zero. But the controller never goes back to split 4. Why? Because every time it runs at split 2, it adds more data to matrix A. The confidence interval shrinks, meaning the bandit stops exploring and acts greedily. Forced sampling happens too rarely to overturn the biased data already baked into A and b. The attack has stopped, but the bad decision is permanently locked in."
+  > "Here is the key finding: after a short burst, we stop the attack completely. But the controller never recovers. Why? It comes down to confirmation bias and false confidence. Once the controller is tricked into picking the bad split, it keeps running it, collecting a mountain of data that reinforces its own bad decision. Because it feels 'confident', it stops exploring. The algorithm does have a built-in safety net that occasionally forces it to test other splits, but it happens so rarely that one clean sample simply isn't enough to overturn all the corrupted history. The attack stops, but the bad decision is locked in forever."
 
 ---
 
