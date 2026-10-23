@@ -35,6 +35,12 @@
     - Microarchitectural contention mechanics and the attribution error causing split shifts.
     - Physical hardware setup, TCP binary protocol, and experimental results.
 
+- **Milestone 4:** **Official Autodidactic Neurosurgeon (ANS) Repository Integration [COMPLETED]**
+  - Imported entire official `https://github.com/letian-zhang/ANS` repository as dedicated [`ans/`](ans/) source package.
+  - Preserved all original scripts (`client_camera_main.py`, `edge_server_main.py`, `communication.py`, `keyFrameDetection.py`, `muLinUCB.py`, `yolo_utils.py`, `models/vgg16.py`, `models/tiny_yolo.py`, and delay profile pickles).
+  - Provided clean package `__init__.py` and standalone [`ans/partition_profiles.py`](ans/partition_profiles.py) exposing `vgg_info` and `yolo_info`.
+  - Confirmed that [`split_inference/controller/muLinUCB.py`](split_inference/controller/muLinUCB.py) and [`ans/muLinUCB.py`](ans/muLinUCB.py) are byte-for-byte identical to the official repository code.
+
 ---
 
 ## 2. Hardware & Network Setup
