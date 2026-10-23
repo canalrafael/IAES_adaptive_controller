@@ -15,7 +15,7 @@ def fillThetaContext(layerInfo, theta_context_dim):
         x_theta[5][i] = layerInfo[i][2]
 
         x_theta[6][i] = layerInfo[i][6]
-        actionList.append(i)
+        actionList.append(layerInfo[i][7])
     return x_theta, actionList
 
 def getCx(x_theta, Action_num):
@@ -23,7 +23,7 @@ def getCx(x_theta, Action_num):
     for i in range(Action_num):
         temp = np.sqrt(np.matmul(x_theta[:, [i]].T, x_theta[:, [i]]))
         listC_x.append(temp[0][0])
-    Cx = max(listC_x)
+    Cx = pow(max(listC_x), 2)
     return Cx
 
 class muLinUCB():
@@ -41,10 +41,9 @@ class muLinUCB():
         self.l_key = 0.8
         self.l_nonkey = 0.2
         self.C_theta = 1
-        self.beta = max(1, self.C_x**2)
-        self.A = np.eye(self.thetaContextDim) * self.beta
+        self.A = np.diag(np.random.randint(1, 9, size=self.thetaContextDim))
         self.b = np.zeros((self.thetaContextDim, 1))
-        self.alpha = (self.C_theta + self.C_noise * np.sqrt(self.thetaContextDim * np.log((1 + self.frameNum * self.C_x * self.C_x) / self.delta))) / (1 - self.l_key)
+        self.alpha = (self.C_theta + np.sqrt(np.log((1 + self.frameNum * self.C_x * self.C_x)/self.delta) * self.thetaContextDim)*self.C_noise)/(1 - self.l_key)
 
         self.forceSamplingRate = 0.25
         self.forceSampleFrame = np.ceil(np.power(self.frameNum, self.forceSamplingRate))
@@ -53,7 +52,7 @@ class muLinUCB():
     def updateDoublingTrickFrameNum(self, current_frame):
         if current_frame > self.frameNum:
             self.frameNum = self.frameNum * 2
-            self.alpha = (self.C_theta + self.C_noise * np.sqrt(self.thetaContextDim * np.log((1 + self.frameNum * self.C_x * self.C_x) / self.delta))) / (1 - self.l_key)
+            self.alpha = (self.C_theta + np.sqrt(np.log((1 + self.frameNum * self.C_x * self.C_x) / self.delta) * self.thetaContextDim) * self.C_noise) / (1 - self.l_key)
             self.forceSampleFrame = np.ceil(np.power(self.frameNum, self.forceSamplingRate))
             return True
         return False
@@ -76,7 +75,7 @@ class muLinUCB():
             temp_1 = np.matmul(x_1.T, theta)
             temp_2 = self.alpha * np.sqrt((1 - L) * np.matmul(np.matmul(x_1.T, A_inv), x_2))
 
-            estimate_delay.append((temp_1 - temp_2)[0][0] + self.frontDelay[action_index])
+            estimate_delay.append(temp_1 - temp_2 + self.frontDelay[action_index])
 
         if current_frame % self.forceSampleFrame == 0:
             estimate_action = estimate_delay.index(min(estimate_delay[0:-1]))
@@ -119,3 +118,14 @@ if __name__ == '__main__':
 
     frontDelay = [0 for index in range(len(partitionInfo))]
     muLinUCB = muLinUCB(0.25, partitionInfo, frontDelay)
+
+
+
+
+
+
+
+
+
+
+
