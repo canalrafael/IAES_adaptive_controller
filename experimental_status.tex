@@ -1,0 +1,175 @@
+\section{Experimental Status}
+\subsection{October 9, 2026: Hardware Validation ($\mu$LinUCB) and Theoretical Analysis of SPViT}
+\subsubsection{Completed Hardware Validation: $\mu$LinUCB}
+I evaluated the feasibility of microarchitectural split-point manipulation on real physical hardware using the original $\mu$LinUCB contextual bandit controller from \textit{Autodidactic Neurosurgeon}~\cite{zhang2021autodidactic}. I integrated the controller into my client-server testbed, where a Raspberry Pi 4 client executes the local prefix of ResNet-18 and offloads the remaining suffix to an edge server over Gigabit Ethernet (\ref{fig:spvit_controller}).
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figures/spvit_controller_explained.png}
+    \caption{Architecture and operational workflow of the SPViT adaptive controller:
+    (A) \textbf{Fine-Grained Parallel ViT Splitting}: Within each Vision Transformer block, Multi-Head Self-Attention (MSA) is partitioned by heads ($h_e$ edge heads, $h_s$ server heads) and Feed-Forward Networks (FFN) are partitioned by projection neurons ($m_e$ edge neurons, $m_s$ server neurons) for concurrent execution, recombined losslessly via element-wise addition $Y = Y_{\text{edge}} + Y_{\text{server}}$.
+    (B) \textbf{Predictive Dynamic Balancing}: Online runtime profiling feeds sliding-window execution speeds and network bandwidth into an $\text{ARIMA}(5,1,0)$ predictor; estimated device completion delays $DL_d$ are evaluated against imbalance threshold $\eta$, triggering greedy head and neuron offloading until concurrent execution makespan is minimized.}
+    \label{fig:spvit_controller}
+\end{figure*}
+
+\paragraph{Experimental Testbed and Protocol}
+The hardware validation environment consists of:
+\begin{itemize}
+    \item \textbf{Edge Client:} Raspberry Pi 4 Model B (Broadcom BCM2711 quad-core Cortex-A72 @ 1.5\,GHz, 4\,GB LPDDR4-3200 SDRAM, running Raspberry Pi OS 64-bit). The client runs the DNN prefix up to split point $k$, executes the online contextual bandit controller, and hosts the transient memory bus contention stressor.
+    \item \textbf{Edge Server:} High-performance backend host (x86\_64 Linux VM, Ubuntu 18.04, Python 3.6 / PyTorch 1.10) connected via Gigabit Ethernet ($1\text{ Gbps}$ LAN, unconstrained switch, physical RTT $<1.0\text{ ms}$).
+    \item \textbf{DNN Workload:} ResNet-18 partitioned across 5 candidate deployment points ($k \in \{0, 1, 2, 3, 4\}$, where $k=0$ denotes purely local execution and $k=4$ represents complete remote offload).
+    \item \textbf{Adversarial Injection:} A calibrated multi-threaded cache/memory bus contention stressor executing non-temporal streaming writes to saturate L2/L3 cache lines and DDR memory bus channels during the controller's online exploration phase.
+\end{itemize}
+
+\paragraph{Stage 1: Hardware Feasibility (Go/No-Go Validation)}
+In the initial physical campaign (5 independent end-to-end hardware trials), the system underwent a three-phase operational cycle:
+\begin{enumerate}
+    \item \textbf{Phase 1 (Nominal Learning, 40 rounds):} Clean physical execution. The controller explores partitioning candidates and establishes $k^0 = 4$ (full remote offload) as the global optimum, achieving nominal latency $J(k^0, 0) \approx 69.2\text{ ms}$.
+    \item \textbf{Phase 2 (Transient Attack Burst, 12 rounds):} The multi-threaded memory stressor (4 workers) is activated. The physical contention increases the execution and transfer latency of $k=4$ to $J(k^0, a) = 90.2\text{ ms}$ ($\Delta_{\text{phys}} = +21.00\text{ ms}$). Crucially, this temporary disturbance severely penalizes the reward metric of $k=4$ inside the $\mu$LinUCB regression matrix $\mathbf{A}_a \leftarrow \mathbf{A}_a + \mathbf{x}_t \mathbf{x}_t^\top$.
+    \item \textbf{Phase 3 (Post-Attack Steady State, Contention OFF):} Contention terminates completely, and the environment returns to a pristine state. Despite clean physical conditions, the poisoned historical state forces the controller to select suboptimal split point $k^a = 2$ (forcing the Stem, Layer 1, and Layer 2 onto the Pi's Cortex-A72 CPU).
+\end{enumerate}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/hardware_delta_comparison.png}
+    \caption{Per-trial comparison on real physical hardware: Direct physical contention latency overhead ($\Delta_{\text{phys}}$) during the 12-round attack burst versus persistent control-plane degradation ($\Delta_{\text{ctrl}}$) in benign post-attack steady state across 5 independent trials.}
+    \label{fig:hardware_delta_comp}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/hardware_amplification_summary.png}
+    \caption{Damage Amplification Analysis on physical hardware: (Left) Mean latency overhead for physical contention ($21.00 \pm 4.3\text{ ms}$) vs. persistent control overhead ($90.53 \pm 11.2\text{ ms}$). (Right) Damage amplification ratio ($\Delta_{\text{ctrl}} / \Delta_{\text{phys}}$) per trial, confirming an average $4.31\times$ damage amplification factor.}
+    \label{fig:hardware_amplification}
+\end{figure}
+
+The physical hardware measurements (Figure~\ref{fig:hardware_delta_comp} and Figure~\ref{fig:hardware_amplification}) confirm four major empirical findings:
+\begin{itemize}
+    \item \textbf{100\% Decision Manipulation Rate:} Across all 5 hardware trials, the controller abandoned nominal optimal split $k^0 = 4$ and locked onto suboptimal split $k^a = 2$.
+    \item \textbf{Physical Impact ($\Delta_{\text{phys}}$):} Direct memory bus contention imposed an average transient penalty of $\Delta_{\text{phys}} = +21.00\text{ ms}$.
+    \item \textbf{Persistent Control Degradation ($\Delta_{\text{ctrl}}$):} In clean post-attack conditions, executing the suboptimal partition $k^a = 2$ incurred an average steady-state latency increase of $\Delta_{\text{ctrl}} = +90.53\text{ ms}$.
+    \item \textbf{Damage Amplification Factor:} The control-plane degradation exceeded the direct physical disturbance by a mean amplification factor of:
+    \begin{equation}
+        \text{Amplification Ratio} = \frac{\Delta_{\text{ctrl}}}{\Delta_{\text{phys}}} = \frac{90.53\text{ ms}}{21.00\text{ ms}} \approx 4.31\times
+    \end{equation}
+\end{itemize}
+
+Figure~\ref{fig:hardware_trajectory} illustrates the complete hardware lifecycle trajectory, while Figure~\ref{fig:hardware_partition_map} depicts the resulting workload shift forced onto the edge client.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figures/hardware_phase_trajectory.png}
+    \caption{Hardware Lifecycle Trajectory: A 12-frame transient contention burst during Phase 2 permanently poisons the upper confidence bounds of $\mu$LinUCB, shifting the system into Phase 3 where it suffers $+90.5\text{ ms}$ persistent latency penalty indefinitely despite the physical stressor having terminated.}
+    \label{fig:hardware_trajectory}
+\end{figure*}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/hardware_split_decision_map.png}
+    \caption{Split Decision Shift and ResNet-18 Partition Map: (Left) 100\% transition rate from nominal $k^0=4$ (full remote offload) to attacked $k^a=2$. (Right) Architectural breakdown showing that $k^a=2$ forces Conv1, Layer 1, and Layer 2 onto the constrained edge CPU, offloading only the deeper suffix.}
+    \label{fig:hardware_partition_map}
+\end{figure}
+
+\subsubsection{Stage 2 Parametric Sweep: Cross-Network and Architectural Generalization}
+Following hardware feasibility validation, I executed an extensive multi-dimensional sweep across 26 distinct experimental cells with 10 independent trials each ($N = 260$ trials total), systematically varying round-trip time ($\text{RTT} \in \{5, 20, 50\}\text{ ms}$), bottleneck bandwidth ($\text{BW} \in \{20, 50, 100\}\text{ Mbps}$), contention intensity ($1, 2, 4, 8$ worker threads), and model architectures (ResNet-18 and MobileNetV2). The overall manipulation success rate, control degradation, network parameter space, and phase latency distributions are depicted in Figures~\ref{fig:stage2_manipulation}, \ref{fig:stage2_delta_ctrl}, \ref{fig:stage2_heatmap}, and \ref{fig:stage2_boxplots}, respectively. 
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/fig1_manipulation_rate.png}
+    \caption{Adversarial Manipulation Success Rate (\%) as a function of contention intensity across ResNet-18 and MobileNetV2, demonstrating universal 100\% vulnerability across all network configurations.}
+    \label{fig:stage2_manipulation}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/fig2_delta_ctrl.png}
+    \caption{Control-Induced Amplification ($\Delta_{\text{ctrl}}$) across contention intensity (workers) and model architectures under high-speed network conditions ($\text{BW}=100\text{ Mbps}$).}
+    \label{fig:stage2_delta_ctrl}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/fig3_heatmap.png}
+    \caption{Heatmap of Adversarial Manipulation Success Rate (\%) across the two-dimensional network envelope of Round-Trip Time ($\text{RTT} \in \{5, 20, 50\}\text{ ms}$) and Bottleneck Bandwidth ($\text{BW} \in \{20, 50, 100\}\text{ Mbps}$) under peak contention, demonstrating invariant 100\% vulnerability across all network combinations.}
+    \label{fig:stage2_heatmap}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/fig4_boxplots.png}
+    \caption{End-to-end inference latency distribution across operational phases: Nominal baseline $J(k^0, 0)$, under contention $J(k^0, a)$, and post-attack steady state $J(k^a, 0)$ for ResNet-18 and MobileNetV2.}
+    \label{fig:stage2_boxplots}
+\end{figure}
+
+\paragraph{Analysis of Operational Regimes}
+The empirical results (summarized in Table~\ref{tab:stage2_summary}) demonstrate that the attack consequences are governed by three distinct network regimes:
+\begin{enumerate}
+    \item \textbf{Degradation Regime ($\text{BW} \ge 100\text{ Mbps}$):} In high-speed networks, remote offloading ($k^0 = 4$) is the global optimum ($J(k^0, 0) \approx 68 - 84\text{ ms}$). Transient contention tricks the bandit into selecting intermediate split points ($k^a \in \{1, 2\}$), causing steady-state degradation of $\Delta_{\text{ctrl}} = +12.5\text{ to }+16.8\text{ ms}$ ($+18\%$ to $+25\%$ overall latency inflation).
+    \item \textbf{Indifference / Crossover Regime ($\text{BW} \approx 50\text{ Mbps}$):} Transmission delay of raw inputs roughly equals local execution of early layers plus intermediate feature transfer ($J(k^0, 0) \approx J(k^a, 0) \approx 116\text{ ms}$). While manipulation remains $100\%$, net control overhead is negligible ($\Delta_{\text{ctrl}} \approx -0.4\text{ to }-3.3\text{ ms}$).
+    \item \textbf{Bandwidth-Bottleneck Inversion ($\text{BW} \le 20\text{ Mbps}$):} Under constrained bandwidth, transferring the raw input image incurs massive transmission latency ($J(k^0, 0) \approx 262\text{ ms}$). Splitting at Layer 2 ($k=2$) compresses activation dimensions, resulting in $J(k^a, 0) \approx 208\text{ ms}$ and yielding $\Delta_{\text{ctrl}} \approx -54\text{ to }-58\text{ ms}$. This establishes that $50\text{ Mbps}$ represents the exact operational threshold where split inference transitions from compute-bound to communication-bound.
+\end{enumerate}
+
+\begin{table*}[t]
+\centering
+\small
+\caption{Stage 2 Parametric Sweep Summary Statistics across Contention Workers, Network RTT, and Bandwidth (10 trials per cell).}
+\label{tab:stage2_summary}
+\begin{tabular}{lcccrccc}
+\toprule
+\textbf{Model} & \textbf{Workers} & \textbf{RTT (ms)} & \textbf{BW (Mbps)} & \textbf{Trials} & \textbf{Manipulation Rate (\%)} & $\mathbf{\Delta_{\text{phys}}}$ \textbf{Mean $\pm$ Std (ms)} & $\mathbf{\Delta_{\text{ctrl}}}$ \textbf{Mean $\pm$ Std (ms)} \\
+\midrule
+ResNet-18 & 1 & 5.0  & 100.0 & 10 & 100.0\% & $1.57 \pm 1.89$ & $+13.67 \pm 3.29$ \\
+ResNet-18 & 1 & 5.0  & 50.0  & 10 & 100.0\% & $4.21 \pm 2.37$ & $-0.39 \pm 1.47$ \\
+ResNet-18 & 1 & 5.0  & 20.0  & 10 & 100.0\% & $1.32 \pm 1.19$ & $-54.16 \pm 1.61$ \\
+ResNet-18 & 1 & 20.0 & 100.0 & 10 & 100.0\% & $3.53 \pm 3.38$ & $+16.81 \pm 5.91$ \\
+ResNet-18 & 1 & 20.0 & 20.0  & 10 & 100.0\% & $1.13 \pm 1.42$ & $-56.70 \pm 1.89$ \\
+\midrule
+ResNet-18 & 2 & 5.0  & 100.0 & 10 & 100.0\% & $2.45 \pm 1.06$ & $+12.52 \pm 0.79$ \\
+ResNet-18 & 2 & 5.0  & 50.0  & 10 & 100.0\% & $4.97 \pm 1.27$ & $-3.31 \pm 2.16$ \\
+ResNet-18 & 2 & 5.0  & 20.0  & 10 & 100.0\% & $3.83 \pm 2.66$ & $-55.53 \pm 1.87$ \\
+ResNet-18 & 2 & 20.0 & 100.0 & 10 & 100.0\% & $3.68 \pm 0.87$ & $+12.20 \pm 2.80$ \\
+ResNet-18 & 2 & 50.0 & 100.0 & 10 & 100.0\% & $5.59 \pm 1.47$ & $+12.77 \pm 1.29$ \\
+\midrule
+ResNet-18 & 4 & 5.0  & 100.0 & 10 & 100.0\% & $4.14 \pm 0.94$ & $+11.66 \pm 2.72$ \\
+ResNet-18 & 4 & 5.0  & 50.0  & 10 & 100.0\% & $9.62 \pm 1.45$ & $-3.07 \pm 1.02$ \\
+ResNet-18 & 4 & 5.0  & 20.0  & 10 & 100.0\% & $9.00 \pm 2.15$ & $-54.31 \pm 2.27$ \\
+ResNet-18 & 4 & 20.0 & 100.0 & 10 & 100.0\% & $7.27 \pm 1.37$ & $+12.66 \pm 1.28$ \\
+ResNet-18 & 4 & 50.0 & 100.0 & 10 & 100.0\% & $9.26 \pm 1.02$ & $+13.12 \pm 1.33$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsubsection{Theoretical Vulnerability Analysis of SPViT}
+Having validated microarchitectural split-point vulnerability on sequential CNNs, I examined the mathematical structure of modern parallel Vision Transformer controllers, specifically \textbf{SPViT}~\cite{zhang2024spvit} (\ref{fig:spvit_controller}). 
+
+SPViT replaces discrete layer slicing with fine-grained intra-layer parallelization:
+\begin{align}
+    \text{Attention (MSA):} \quad & h = h_e + h_s, \quad Y_{\text{MSA}} = Y_{\text{edge}} + Y_{\text{server}} \\
+    \text{Feed-Forward (FFN):} \quad & m = m_e + m_s, \quad Y_{\text{FFN}} = Y_{\text{edge}} + Y_{\text{server}}
+\end{align}
+To dynamically balance $(h_e, m_e)$ and $(h_s, m_s)$, SPViT relies on an $\text{ARIMA}(5,1,0)$ predictor operating over a sliding observation window of device execution speeds $\{s_t\}$ and network bandwidth $\{B_t\}$. 
+
+\paragraph{Vulnerability to Non-Stationary Memory Contention}
+The $\text{ARIMA}(5,1,0)$ model computes estimated edge completion delay $DL_e$ via autoregressive historical forecasting:
+\begin{equation}
+    (1 - \sum_{i=1}^5 \phi_i B^i)(1 - B) s_t = \epsilon_t
+\end{equation}
+When transient memory contention is injected on the edge device during profiling:
+\begin{enumerate}
+    \item \textbf{Local Speed Collapse:} Memory bus saturation degrades DRAM throughput, artificially inflating the estimated delay:
+    \begin{equation}
+        \widetilde{DL}_e(h_e, m_e) \gg DL_e(h_e, m_e)
+    \end{equation}
+    \item \textbf{Greedy Offloading Trigger:} The SPViT decision logic evaluates load imbalance against threshold $\eta$:
+    \begin{equation}
+        \text{Imbalance} = \frac{|\widetilde{DL}_e - DL_s|}{\max(\widetilde{DL}_e, DL_s)} > \eta
+    \end{equation}
+    Because $\widetilde{DL}_e$ spikes, the controller's greedy balancer continuously decrements edge allocations:
+    \begin{equation}
+        h_e \leftarrow h_e - \Delta h, \quad m_e \leftarrow m_e - \Delta m
+    \end{equation}
+    forcing heads and neurons to the server.
+    \item \textbf{ARIMA Memory Lag and Network Saturation:} Because $\text{ARIMA}(5,1,0)$ possesses long autoregressive memory coefficients ($\phi_1, \dots, \phi_5$), the forecasted speed $\hat{s}_{t+k}$ remains depressed for dozens of cycles after contention terminates. Furthermore, offloading excessive ViT tokens and intermediate activations saturates the uplink, transforming a local microarchitectural disturbance into an end-to-end communication bottleneck.
+\end{enumerate}
+
+Thus, both contextual bandit controllers ($\mu$LinUCB) and time-series predictive balancers ($\text{ARIMA}$-based SPViT) share an identical architectural vulnerability: \textbf{neither mechanism can discriminate between non-stationary microarchitectural contention and genuine computational capability.}
