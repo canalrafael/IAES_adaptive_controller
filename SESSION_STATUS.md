@@ -1,8 +1,9 @@
 # Project Checkpoint & Session Status
 
-**Date:** 2026-09-28  
+**Date:** 2026-10-24  
 **Active Branch:** `adaptive-controller` (repository: `canalrafael/IAES_adaptive_controller`)  
-**Workspace:** `c:\Users\canal\Desktop\Doutorado - PPGCC\adaptive split point controller\IAES`
+**Workspace:** `c:\Users\canal\Desktop\Doutorado - PPGCC\adaptive split point controller\IAES`  
+**Guide File:** [`HOW_TO_RUN_EXPERIMENTS.txt`](HOW_TO_RUN_EXPERIMENTS.txt)
 
 ---
 
@@ -10,36 +11,33 @@
 
 - **Milestone 1:** **Stage 1 Hardware Go/No-Go Experiment [PASSED]**
   - **Hypothesis Validated on Real Physical Hardware:**
-    Transient memory bus contention during learning manipulates `muLinUCB` to pick suboptimal split `k^a = 2` instead of `k^0 = 4`.
+    Transient memory bus contention during learning manipulates `muLinUCB` to pick suboptimal split points ($k^a \in \{1, 2\}$ instead of nominal $k^0 = 4$).
     - **Decision Manipulation Rate:** **100%** (5/5 trials)
-    - **Physical Contention Impact (`Delta_phys`):** **+47.74 ms**
-    - **Persistent Control Overhead (`Delta_ctrl`):** **+114.95 ms** (~2.43x amplification)
+    - **Physical Contention Impact (`Delta_phys`):** **+21.00 ms**
+    - **Persistent Control Overhead (`Delta_ctrl`):** **+90.53 ms** (~4.3x amplification)
   - **Controller Integrity:**
     The `muLinUCB` controller (`split_inference/controller/muLinUCB.py`) remains **100% original and unmodified** from WWW 2021.
 
-- **Milestone 2:** **Hardware Visual Analytics & Publication Figures [COMPLETED]**
+- **Milestone 2:** **Stage 2 Full Hardware Campaign Sweep [COMPLETED]**
+  - **Date Executed:** 2026-10-24
+  - **Scale:** 10 experimental cells $\times$ 20 trials = **200 physical trials total**
+    - Models: ResNet-18 and MobileNetV2
+    - Contention Intensity: 1, 2, 4, 6, 8 memory contention worker threads
+  - **Raw Results File:** `results/hardware_results_20261024_104909.csv` (saved on Raspberry Pi 4)
+
+- **Milestone 3:** **Network Protocol & PyTorch Backwards-Compatibility [RESOLVED]**
+  - Resolved `torch.load(..., weights_only=True)` incompatibility on PyTorch < 1.13.
+  - Implemented `_safe_load_tensor()` in `split_inference/network/protocol.py` that probes `weights_only` compatibility once on import and safely seeks `buf.seek(0)` to prevent stream corruption.
+  - Added robust exception logging in `split_inference/network/server.py`.
+
+- **Milestone 4:** **Hardware Visual Analytics & Publication Figures [READY]**
   - Formatted raw hardware results into [`results/hardware_gonogo_results.csv`](results/hardware_gonogo_results.csv).
   - Created plot generator [`split_inference/plot_hardware_results.py`](split_inference/plot_hardware_results.py).
-  - Generated 4 publication-quality figures in both high-res PNG and vector PDF formats under [`results/figures/`](results/figures/):
-    1. `hardware_delta_comparison.png` / `.pdf`: Per-trial `Delta_phys` vs `Delta_ctrl` with 2.4x badge callouts.
-    2. `hardware_amplification_summary.png` / `.pdf`: Mean ± std aggregated comparison and amplification ratios.
-    3. `hardware_phase_trajectory.png` / `.pdf`: 3-phase lifecycle trajectory (Nominal -> Attack -> Post-Attack lock-in).
-    4. `hardware_split_decision_map.png` / `.pdf`: Split decision manipulation matrix and ResNet-18 partition placement.
+  - High-res PNG and PDF figures in [`results/figures/`](results/figures/).
 
-- **Milestone 3:** **30-Minute Presentation Script & Slide Deck [COMPLETED]**
-  - Created [`PRESENTATION_SLIDES.md`](PRESENTATION_SLIDES.md) containing 16 clean, non-fluffy slides ready for Google Slides.
-  - Formatted in plain text (no LaTeX syntax) with concise bullet points and complete "What to say" speaker notes.
-  - Covers:
-    - Background & why ANS was chosen (architectural fit & open-source availability).
-    - Proof of online learning (explanation of matrix A, vector b, ridge regression).
-    - Microarchitectural contention mechanics and the attribution error causing split shifts.
-    - Physical hardware setup, TCP binary protocol, and experimental results.
-
-- **Milestone 4:** **Official Autodidactic Neurosurgeon (ANS) Repository Integration [COMPLETED]**
+- **Milestone 5:** **Official Autodidactic Neurosurgeon (ANS) Repository Integration [COMPLETED]**
   - Imported entire official `https://github.com/letian-zhang/ANS` repository as dedicated [`ans/`](ans/) source package.
-  - Preserved all original scripts (`client_camera_main.py`, `edge_server_main.py`, `communication.py`, `keyFrameDetection.py`, `muLinUCB.py`, `yolo_utils.py`, `models/vgg16.py`, `models/tiny_yolo.py`, and delay profile pickles).
-  - Provided clean package `__init__.py` and standalone [`ans/partition_profiles.py`](ans/partition_profiles.py) exposing `vgg_info` and `yolo_info`.
-  - Confirmed that [`split_inference/controller/muLinUCB.py`](split_inference/controller/muLinUCB.py) and [`ans/muLinUCB.py`](ans/muLinUCB.py) are byte-for-byte identical to the official repository code.
+  - Confirmed byte-for-byte parity with official WWW 2021 code.
 
 ---
 
@@ -48,45 +46,40 @@
 | Component | Hardware | Role & Operating System | IP Address |
 |---|---|---|---|
 | **Edge Device** | Raspberry Pi 4 | Client / Split Inference Frontend (Raspberry Pi OS 64-bit) | `192.168.1.222` |
-| **Server** | Host PC | Edge Server / Backend GPU/CPU (Windows 11) | `192.168.1.19` |
-| **Network** | Ethernet | Direct Gigabit LAN via Router | Port `5005` |
-
-### Environment on Raspberry Pi 4:
-- Path: `~/IAES_adaptive_controller`
-- Virtual environment: `~/IAES_adaptive_controller/venv` (Python 3.13)
-- PyTorch: `2.14.0+cu130` (ARM64 via piwheels)
+| **Edge Server** | Linux VM (Ubuntu 18.04) | Backend Server for DNN Suffix Execution (Python 3.6 + PyTorch 1.10) | `192.168.1.21` |
+| **Alternative Server** | Host PC (Windows 11) | Backend GPU/CPU Server (Python 3.12 + PyTorch) | `192.168.1.19` |
+| **Network** | Ethernet | Direct Gigabit LAN via Router / Switch | Port `5005` |
 
 ---
 
-## 3. Quick-Start Commands to Resume Tomorrow
+## 3. Quick-Start Commands to Resume Next Session
 
-### Step 1: Start Server (on Windows PC)
-From the repository root (`IAES`):
-```powershell
-python -m split_inference.run_hardware_server --port 5005
+### Step 1: Copy Results CSV from Raspberry Pi to Linux VM / PC
+From your Linux VM terminal:
+```bash
+cd ~/Desktop/git/IAES_adaptive_controller
+scp canal@192.168.1.222:~/IAES_adaptive_controller/results/hardware_results_20261024_104909.csv ./results/
 ```
 
-### Step 2: SSH into Raspberry Pi 4
-From your terminal / Ubuntu VM:
+### Step 2: Push Results to Git
 ```bash
-ssh canal@192.168.1.222
-cd ~/IAES_adaptive_controller
-source venv/bin/activate
-git pull
+git add results/
+git commit -m "Save full Stage 2 hardware sweep results (200 trials)"
+git push origin adaptive-controller
 ```
 
-### Step 3: Run Planned Next Step (Stage 2 Parameter Sweep)
+### Step 3: Generate Plots and Statistical Analysis
 ```bash
-# Run sweep across contention intensity (1 to 8 workers) and models:
-python3 -m split_inference.run_stage2_hardware --host 192.168.1.19 --port 5005 --trials 20
+python3 -m split_inference.analyze_results
+python3 -m split_inference.plot_hardware_results
 ```
 
 ---
 
 ## 4. Key Artifacts & Documentation
 
-- [`PRESENTATION_SLIDES.md`](PRESENTATION_SLIDES.md): Complete 16-slide presentation text with plain-text formulas and speaking notes.
-- [`results/figures/`](results/figures/): High-resolution PNG and PDF figures from the real hardware experiment.
-- [`results/hardware_gonogo_results.csv`](results/hardware_gonogo_results.csv): Raw data from the 5 hardware trials.
-- [`results/experiment_results_summary.txt`](results/experiment_results_summary.txt): Full plain-text experiment record.
-- `SESSION_STATUS.md`: This checkpoint file for seamless pickup.
+- [`HOW_TO_RUN_EXPERIMENTS.txt`](HOW_TO_RUN_EXPERIMENTS.txt): Complete step-by-step cheat sheet for running experiments across VM and Pi.
+- [`PRESENTATION_SLIDES.md`](PRESENTATION_SLIDES.md): 16-slide presentation text with plain-text formulas and speaking notes.
+- [`results/figures/`](results/figures/): High-resolution PNG and PDF publication figures.
+- [`results/hardware_results_20261024_104909.csv`](results/): Raw data from the 200-trial Stage 2 hardware campaign.
+- `SESSION_STATUS.md`: This checkpoint file.
