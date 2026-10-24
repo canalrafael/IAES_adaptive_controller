@@ -45,7 +45,7 @@ def generate_figures(df: pd.DataFrame, out_dir: str):
     plt.figure(figsize=(8, 5))
     # Group by model, workers. Calculate mean of decision_changed * 100
     df['success_pct'] = df['decision_changed'] * 100.0
-    sns.lineplot(data=df, x='workers', y='success_pct', hue='model', marker='o', errorbar=None)
+    sns.lineplot(data=df, x='workers', y='success_pct', hue='model', marker='o', ci=None)
     
     plt.title("Adversarial Manipulation Rate vs. Contention Intensity")
     plt.xlabel("Number of Contention Workers")
