@@ -1,0 +1,100 @@
+================================================================================
+           HARDWARE SPLIT INFERENCE EXPERIMENT GUIDE (VM <-> RASP)
+================================================================================
+
+1. NETWORK TOPOLOGY & ROLES
+--------------------------------------------------------------------------------
+- Edge Server (Backend): Linux VM (Ubuntu)
+  IP Address: 192.168.1.21
+  Port: 5005
+  Role: Receives activation tensors z_k, computes DNN suffix, returns predictions.
+
+- Edge Client (Frontend): Raspberry Pi 4
+  IP Address: 192.168.1.222
+  Role: Runs DNN prefix up to split point k, executes muLinUCB controller,
+        simulates transient memory bus contention.
+
+- Active Git Branch: adaptive-controller
+- Repo URL: https://github.com/canalrafael/IAES_adaptive_controller.git
+
+
+2. STEP-BY-STEP EXECUTION
+--------------------------------------------------------------------------------
+
+STEP 1: START THE EDGE SERVER (ON LINUX VM)
+--------------------------------------------
+Open a terminal in your Ubuntu VM:
+
+  cd ~/Desktop/git/IAES_adaptive_controller
+  git checkout adaptive-controller
+  git pull
+  python3 -m split_inference.run_hardware_server --port 5005
+
+You should see:
+  STARTING EDGE INFERENCE SERVER ON PORT 5005
+  Listening on 0.0.0.0 (all network interfaces)...
+
+Leave this terminal open and running.
+
+
+STEP 2: RUN EXPERIMENTS FROM THE RASPBERRY PI
+---------------------------------------------
+Open a terminal and SSH into your Raspberry Pi:
+
+  ssh canal@192.168.1.222
+  cd ~/IAES_adaptive_controller
+  source venv/bin/activate
+  git checkout adaptive-controller
+  git pull
+
+Choose which experiment to run:
+
+  [Option A] Quick Go/No-Go Feasibility Test (5 trials):
+  ------------------------------------------------------
+  python3 -m split_inference.run_gonogo_hardware \
+      --host 192.168.1.21 \
+      --port 5005 \
+      --workers 4
+
+  [Option B] Full Stage 2 Parameter Sweep (Multi-worker & formal sweep):
+  ----------------------------------------------------------------------
+  python3 -m split_inference.run_stage2_hardware \
+      --host 192.168.1.21 \
+      --port 5005 \
+      --trials 20
+
+  (Optional custom parameters for Stage 2):
+  --workers-range 1 8      # Sweep worker count from 1 to 8
+  --models resnet18        # Specify model architectures
+
+
+3. RESULTS & LOGS
+--------------------------------------------------------------------------------
+- The scripts generate output CSV files inside the `results/` folder on the Pi:
+    results/hardware_results_<timestamp>.csv
+    results/hardware_gonogo_results.csv
+
+- To copy the results from the Pi to your VM/PC:
+  scp canal@192.168.1.222:~/IAES_adaptive_controller/results/*.csv ./results/
+
+- To generate figures & PDF plots:
+  python3 -m split_inference.plot_hardware_results
+  python3 -m split_inference.analyze_results
+
+
+4. TROUBLESHOOTING & COMMON CHECKS
+--------------------------------------------------------------------------------
+- If server fails to bind port 5005:
+  Check if an old server instance is running:
+  sudo lsof -i :5005
+  kill -9 <PID>
+
+- If Pi cannot connect (Connection Refused):
+  1. Confirm VM IP has not changed: run `ip a` on the VM.
+  2. Ping the VM from the Pi: `ping -c 3 192.168.1.21`.
+  3. Ensure the server terminal is active and listening.
+
+- If Pi environment fails:
+  Ensure the virtual environment is active:
+  source ~/IAES_adaptive_controller/venv/bin/activate
+================================================================================
