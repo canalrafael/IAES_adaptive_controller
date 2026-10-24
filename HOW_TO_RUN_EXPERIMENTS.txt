@@ -97,4 +97,8 @@ Choose which experiment to run:
 - If Pi environment fails:
   Ensure the virtual environment is active:
   source ~/IAES_adaptive_controller/venv/bin/activate
+
+- If plotting fails on Linux VM (Ubuntu 18 / Python 3.6):
+  sudo apt-get install -y libjpeg-dev zlib1g-dev
+  pip3 install --upgrade matplotlib seaborn scipy pandas
 ================================================================================
