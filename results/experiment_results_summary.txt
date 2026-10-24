@@ -1,0 +1,111 @@
+================================================================================
+ADAPTIVE SPLIT INFERENCE CONTROLLER - EXPERIMENT REPORT
+================================================================================
+Date: 2026-09-26
+Repository: https://github.com/canalrafael/IAES_adaptive_controller
+Branch: adaptive-controller (synced to main)
+
+--------------------------------------------------------------------------------
+1. CONTEXT & RESEARCH GOAL
+--------------------------------------------------------------------------------
+This experiment validates the core research hypothesis of the paper:
+
+  "Microarchitectural contention (memory bandwidth saturation) injected during
+   the profiling phase of the Autodidactic Neurosurgeon (ANS) muLinUCB controller
+   causes it to choose a suboptimal split point (k^a != k^0), resulting in a
+   persistent latency increase that is larger than the direct contention effect
+   itself."
+
+System Under Test:
+- Split Inference pipeline: partitioned ResNet-18 (23 split points) across
+  edge and server.
+- Controller: muLinUCB (Autodidactic Neurosurgeon, WWW 2021) contextual bandit.
+- Edge: Raspberry Pi 4 (ARM64).
+- Server: PC running Windows 11 (PyTorch CUDA/CPU).
+
+--------------------------------------------------------------------------------
+2. SETUP & ACTIONS PERFORMED
+--------------------------------------------------------------------------------
+1. Flashed Raspberry Pi OS (64-bit) onto SD card using Raspberry Pi Imager.
+2. Network connection: Raspberry Pi connected via Ethernet to router (IP: 192.168.1.222).
+   Host PC connected to the same LAN (IP: 192.168.1.19).
+3. Cloned repository onto the Pi:
+   git clone https://github.com/canalrafael/IAES_adaptive_controller.git
+4. Created and activated Python virtual environment:
+   python3 -m venv venv
+   source venv/bin/activate
+5. Fixed dependencies and code:
+   - Updated `split_inference/requirements_pi.txt`: adjusted PyTorch dependency 
+     for ARM64 Debian/piwheels.
+   - Fixed `split_inference/client.py`: added guard against ZeroDivisionError 
+     when network emulation is disabled (bandwidth = 0.0) in hardware mode.
+6. Synchronized repository changes via git (`git stash`, `git pull`).
+7. Started Server on PC:
+   python -m split_inference.run_hardware_server --port 5005
+8. Executed Go/No-Go hardware validation experiment from the Raspberry Pi:
+   python -m split_inference.run_gonogo_hardware --host 192.168.1.19 --port 5005 --workers 4
+
+--------------------------------------------------------------------------------
+3. GO/NO-GO EXPERIMENT RESULTS (5 TRIALS)
+--------------------------------------------------------------------------------
+Command:
+  python -m split_inference.run_gonogo_hardware --host 192.168.1.19 --port 5005 --workers 4
+
+Configuration:
+- Trials: 5
+- Contention workers: 4
+- Nominal learning rounds: 40
+- Attack burst rounds: 12
+- Evaluation samples per split: 15
+- Artificial network emulation: OFF (real hardware LAN)
+
+Trial-by-Trial Results:
++-------+--------------+---------------+---------------+---------------+---------------+
+| Trial | k^0(Nominal) | k^a(Attacked) | Split Changed |  Delta_phys   |  Delta_ctrl   |
++-------+--------------+---------------+---------------+---------------+---------------+
+|   1   |      4       |       2       |      YES      |   +47.07 ms   |  +113.52 ms   |
+|   2   |      4       |       2       |      YES      |   +49.25 ms   |  +115.99 ms   |
+|   3   |      4       |       2       |      YES      |   +41.75 ms   |  +114.52 ms   |
+|   4   |      4       |       2       |      YES      |   +54.48 ms   |  +115.13 ms   |
+|   5   |      4       |       2       |      YES      |   +46.17 ms   |  +115.58 ms   |
++-------+--------------+---------------+---------------+---------------+---------------+
+
+Summary Metrics:
+- Manipulation Rate: 100.0% (5/5 trials)
+- Nominal Split k^0: 4 (constant across all trials)
+- Attacked Split k^a: 2 (constant across all trials)
+- Mean Delta_phys (direct contention slowdown): +47.74 ms
+- Mean Delta_ctrl (control-induced amplification): +114.95 ms
+- Amplification Factor (Delta_ctrl / Delta_phys): ~2.4x
+
+--------------------------------------------------------------------------------
+4. GO/NO-GO VERDICT
+--------------------------------------------------------------------------------
+Criteria:
+1. Decision manipulated (k^a != k^0) > 50%:
+   -> RESULT: 100.0% [PASSED]
+2. Persistent post-attack cost (Delta_ctrl > 0):
+   -> RESULT: +114.95 ms [PASSED]
+
+OVERALL VERDICT: [GO] - RESEARCH HYPOTHESIS CONFIRMED
+The muLinUCB controller was successfully manipulated in 100% of trials.
+The control-induced amplification damage (+114.95 ms) is 2.4x larger than the
+direct physical contention slowdown (+47.74 ms). This proves that applying
+transient microarchitectural contention during learning causes persistent,
+amplified system degradation.
+
+--------------------------------------------------------------------------------
+5. NEXT STEPS
+--------------------------------------------------------------------------------
+1. Stage 2 Formal Parameter Sweep:
+   Run sweep across contention intensity (1 to 8 workers) and models
+   (e.g., ResNet-18, MobileNetV2) to generate statistical data for paper figures:
+   python3 -m split_inference.run_stage2_hardware --host 192.168.1.19 --port 5005 --trials 20
+
+2. Figure Generation:
+   Execute `analyze_results.py` on the PC to produce publication-ready PDF plots.
+
+3. Bao Hypervisor Integration:
+   Deploy the validated setup into VM3 of the Bao hypervisor using an Ubuntu/Debian
+   rootfs with the required Python/PyTorch dependencies.
+================================================================================
