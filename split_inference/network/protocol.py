@@ -15,6 +15,24 @@ import torch
 MAGIC_HEADER = b"SPLT"
 MAGIC_RESP = b"RESP"
 
+# Detect whether this PyTorch version accepts weights_only
+_SUPPORTS_WEIGHTS_ONLY = False
+try:
+    _test_buf = io.BytesIO()
+    torch.save(torch.tensor([1]), _test_buf)
+    _test_buf.seek(0)
+    torch.load(_test_buf, weights_only=True)
+    _SUPPORTS_WEIGHTS_ONLY = True
+except (TypeError, Exception):
+    _SUPPORTS_WEIGHTS_ONLY = False
+
+
+def _safe_load_tensor(buf: io.BytesIO) -> torch.Tensor:
+    buf.seek(0)
+    if _SUPPORTS_WEIGHTS_ONLY:
+        return torch.load(buf, weights_only=True)
+    return torch.load(buf)
+
 
 def send_exact(sock: socket.socket, data: bytes) -> None:
     """Ensures all bytes in buffer are completely transmitted."""
@@ -68,10 +86,7 @@ def recv_activation(sock: socket.socket) -> Tuple[torch.Tensor, int, int]:
     payload = recv_exact(sock, payload_len)
     
     buf = io.BytesIO(payload)
-    try:
-        tensor = torch.load(buf, weights_only=True)
-    except TypeError:
-        tensor = torch.load(buf)
+    tensor = _safe_load_tensor(buf)
     return tensor, k, 9 + payload_len
 
 
@@ -96,8 +111,5 @@ def recv_prediction(sock: socket.socket) -> Tuple[torch.Tensor, int]:
     payload = recv_exact(sock, payload_len)
     
     buf = io.BytesIO(payload)
-    try:
-        tensor = torch.load(buf, weights_only=True)
-    except TypeError:
-        tensor = torch.load(buf)
+    tensor = _safe_load_tensor(buf)
     return tensor, 8 + payload_len
