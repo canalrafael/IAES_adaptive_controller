@@ -68,7 +68,10 @@ def recv_activation(sock: socket.socket) -> Tuple[torch.Tensor, int, int]:
     payload = recv_exact(sock, payload_len)
     
     buf = io.BytesIO(payload)
-    tensor = torch.load(buf, weights_only=True)
+    try:
+        tensor = torch.load(buf, weights_only=True)
+    except TypeError:
+        tensor = torch.load(buf)
     return tensor, k, 9 + payload_len
 
 
@@ -93,5 +96,8 @@ def recv_prediction(sock: socket.socket) -> Tuple[torch.Tensor, int]:
     payload = recv_exact(sock, payload_len)
     
     buf = io.BytesIO(payload)
-    tensor = torch.load(buf, weights_only=True)
+    try:
+        tensor = torch.load(buf, weights_only=True)
+    except TypeError:
+        tensor = torch.load(buf)
     return tensor, 8 + payload_len

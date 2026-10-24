@@ -53,8 +53,10 @@ class EdgeInferenceServer:
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             try:
                 self._handle_client(conn)
-            except Exception:
-                pass
+            except Exception as e:
+                import traceback
+                print(f"[EdgeServer] Client error: {e}")
+                traceback.print_exc()
             finally:
                 conn.close()
 
